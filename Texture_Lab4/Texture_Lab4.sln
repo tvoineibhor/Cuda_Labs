@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.28307.1022
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Texture_Lab4", "Texture_Lab4\Texture_Lab4.vcxproj", "{26BEBB42-02F3-443F-9989-8B80D8531521}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{26BEBB42-02F3-443F-9989-8B80D8531521}.Debug|x64.ActiveCfg = Debug|x64
+		{26BEBB42-02F3-443F-9989-8B80D8531521}.Debug|x64.Build.0 = Debug|x64
+		{26BEBB42-02F3-443F-9989-8B80D8531521}.Release|x64.ActiveCfg = Release|x64
+		{26BEBB42-02F3-443F-9989-8B80D8531521}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {0A3D7113-9D96-40CC-9383-55F1B2EB6617}
+	EndGlobalSection
+EndGlobal
