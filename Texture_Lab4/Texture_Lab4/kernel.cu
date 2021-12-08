@@ -3,7 +3,6 @@
 #include "Helper.h"
 #include <ctime>
 
-
 #ifndef __CUDACC__ 
 	#define __CUDACC__
 #endif
@@ -11,7 +10,9 @@
 #include <device_functions.h>
 #include "EBMP/EasyBMP.h"
 
-#define STEP 4
+#define STEP 2
+
+using namespace std;
 
 enum FilterMethod
 {
@@ -19,44 +20,51 @@ enum FilterMethod
 	GPU
 };
 
-void saveImage(float* image, int height, int width, bool method) {
-	BMP Output;
-	Output.SetSize(width, height);
+__host__ __device__
+RGBApixel cubicInterpolate(double x, RGBApixel* p)
+{
+	RGBApixel res;
+	double r = p[1].Red + 0.5 * x*(p[2].Red - p[0].Red +
+		x * (2.0*p[0].Red - 5.0*p[1].Red + 4.0*p[2].Red - p[3].Red +
+			x * (3.0*(p[1].Red - p[2].Red) + p[3].Red - p[0].Red)));
 
-	for (int i = 0; i < height; i++) {
-		for (int j = 0; j < width; j++) {
-			RGBApixel pixel;
-			pixel.Red = image[i * width + j];
-			pixel.Green = image[i * width + j];
-			pixel.Blue = image[i * width + j];
-			Output.SetPixel(j, i, pixel);
-		}
-	}
+	if (r < 0.) r = 0.0;
+	if (r > 255.) r = 255.;
 
-	if (method)
-		Output.WriteToFile("icon_linear.bmp");
-	else
-		Output.WriteToFile("icon_linear.bmp");
+	double g = p[1].Green + 0.5 * x*(p[2].Green - p[0].Green +
+		x * (2.0*p[0].Green - 5.0*p[1].Green + 4.0*p[2].Green - p[3].Green +
+			x * (3.0*(p[1].Green - p[2].Green) + p[3].Green - p[0].Green)));
 
+	if (g < 0.) g = 0.0;
+	if (g > 255.) g = 255.;
+
+	double b = p[1].Blue + 0.5 * x*(p[2].Blue - p[0].Blue +
+		x * (2.0*p[0].Blue - 5.0*p[1].Blue + 4.0*p[2].Blue - p[3].Blue +
+			x * (3.0*(p[1].Blue - p[2].Blue) + p[3].Blue - p[0].Blue)));
+
+	if (b < 0.) b = 0.0;
+	if (b > 255.) b = 255.;
+
+	double a = p[1].Alpha + 0.5 * x*(p[2].Alpha - p[0].Alpha +
+		x * (2.0*p[0].Alpha - 5.0*p[1].Alpha + 4.0*p[2].Alpha - p[3].Alpha +
+			x * (3.0*(p[1].Alpha - p[2].Alpha) + p[3].Alpha - p[0].Alpha)));
+
+	if (a < 0.) a = 0.0;
+	if (a > 255.) a = 255.;
+
+	res.Red = (ebmpBYTE)r;
+	res.Green = (ebmpBYTE)g;
+	res.Blue = (ebmpBYTE)b;
+	res.Alpha = (ebmpBYTE)a;
+
+	return res;
 }
 
 
 __host__ __device__
-float cubicInterpolate(float x, float* p)
+RGBApixel bicubicInterpolate(double x, double y, RGBApixel p[4][4])
 {
-	return
-		p[1] + (-0.5 * p[0] + 0.5 * p[2]) * x
-		+ (p[0] - 2.5 * p[1] + 2.0 * p[2]
-			- 0.5 * p[3]) * x * x
-		+ (-0.5 * p[0] + 1.5 * p[1] - 1.5 * p[2]
-			+ 0.5 * p[3]) * x * x * x;
-}
-
-
-__host__ __device__
-float bicubicInterpolate(float x, float y, float p[4][4])
-{
-	float arr[4];
+	RGBApixel arr[4];
 	arr[0] = cubicInterpolate(x, p[0]);
 	arr[1] = cubicInterpolate(x, p[1]);
 	arr[2] = cubicInterpolate(x, p[2]);
@@ -65,17 +73,16 @@ float bicubicInterpolate(float x, float y, float p[4][4])
 	return cubicInterpolate(y, arr);
 }
 
-
-void saveImage_(float* image, int height, int width, FilterMethod method) {
+void saveImage(RGBApixel* image, int height, int width, FilterMethod method) {
 	BMP Output;
 	Output.SetSize(width, height);
 
 	for (int i = 0; i < height; i++) {
 		for (int j = 0; j < width; j++) {
 			RGBApixel pixel;
-			pixel.Red = image[i * width +  j];
-			pixel.Green = image[i * width + j];
-			pixel.Blue = image[i * width + j];
+			pixel.Red = image[i * width + j].Red;
+			pixel.Green = image[i * width + j].Green;
+			pixel.Blue = image[i * width + j].Blue;
 			Output.SetPixel(j, i, pixel);
 		}
 	}
@@ -88,108 +95,103 @@ void saveImage_(float* image, int height, int width, FilterMethod method) {
 }
 
 
-float BicubicFilterCPU(float* input, int h, int w, float* output)
+void BicubicFilterCPU(RGBApixel* input, int h, int w, RGBApixel* output)
 {
-	float point[4][4];
-	for (int i = 0; i < (h - 1); i++)
+	RGBApixel point[4][4];
+	
+	for (int i = 0; i < (h - 2); i++)
 	{
-		for (int j = 0; j < (w - 1); j++)
+		
+		for (int j = 0; j < (w - 2); j++)
 		{
-			point[0][0] = input[(i + 0) * (h + 2) + j];
-			point[1][0] = input[(i + 1) * (h + 2) + j];
-			point[2][0] = input[(i + 2) * (h + 2) + j];
-			point[3][0] = input[(i + 3) * (h + 2) + j];
+			point[0][0] = input[(i + 0) * (w) + j];
+			point[1][0] = input[(i + 1) * (w) + j];
+			point[2][0] = input[(i + 2) * (w) + j];
+			point[3][0] = input[(i + 3) * (w) + j];
+										   
+			point[0][1] = input[(i + 0) * (w) + j + 1];
+			point[1][1] = input[(i + 1) * (w) + j + 1];
+			point[2][1] = input[(i + 2) * (w) + j + 1];
+			point[3][1] = input[(i + 3) * (w) + j + 1];
+										   
+			point[0][2] = input[(i + 0) * (w) + j + 2];
+			point[1][2] = input[(i + 1) * (w) + j + 2];
+			point[2][2] = input[(i + 2) * (w) + j + 2];
+			point[3][2] = input[(i + 3) * (w) + j + 2];
+										   
+			point[0][3] = input[(i + 0) * (w) + j + 3];
+			point[1][3] = input[(i + 1) * (w) + j + 3];
+			point[2][3] = input[(i + 2) * (w) + j + 3];
+			point[3][3] = input[(i + 3) * (w) + j + 3];
 
-			point[0][1] = input[(i + 0) * (h + 2) + j + 1];
-			point[1][1] = input[(i + 1) * (h + 2) + j + 1];
-			point[2][1] = input[(i + 2) * (h + 2) + j + 1];
-			point[3][1] = input[(i + 3) * (h + 2) + j + 1];
-
-			point[0][2] = input[(i + 0) * (h + 2) + j + 2];
-			point[1][2] = input[(i + 1) * (h + 2) + j + 2];
-			point[2][2] = input[(i + 2) * (h + 2) + j + 2];
-			point[3][2] = input[(i + 3) * (h + 2) + j + 2];
-
-			point[0][3] = input[(i + 0) * (h + 2) + j + 3];
-			point[1][3] = input[(i + 1) * (h + 2) + j + 3];
-			point[2][3] = input[(i + 2) * (h + 2) + j + 3];
-			point[3][3] = input[(i + 3) * (h + 2) + j + 3];
-
-			for (float y = 0; y < STEP; y++)
+			for (int y = 0; y < STEP; y++)
 			{
-				for (float x = 0; x < STEP; x++)
+				for (int x = 0; x < STEP; x++)
 				{
-					int rx = (j)* STEP + x;
-					int ry = (i)* STEP + y;
+					int rx = (j) * STEP + x;
+					int ry = (i) * STEP + y;
 
-					float ax = x / STEP;
-					float ay = y / STEP;
+					double ax = (double)x / STEP;
+					double ay = (double)y / STEP;
 
-					float res = bicubicInterpolate(ax, ay, point);
-					
-					if (res < 0) res = 0.;
-					if (res > 255) res = 255.;
+					RGBApixel res = bicubicInterpolate(ax, ay, point);
 
-					output[ry * (h - 1) * STEP + rx] = res;
+					output[ry * (w - 2) * STEP + rx] = res;
 				}
 			}
 		}
-
-	}	
-
-	return 0;
+	}
 }
 
-__global__ void BicubicFilterGPU(int h, int w, float* input, float* output)
+__global__ void BicubicFilterGPU(int height, int width, RGBApixel* input, RGBApixel* output)
 {
-	__shared__ float point[4][4];
+	__shared__ RGBApixel point[4][4];
 
-	int col = blockIdx.x + threadIdx.x;
-	int row = blockIdx.y + threadIdx.y;
+	if (threadIdx.x < 4 && threadIdx.y < 4)
+	{
+		int col = blockIdx.x + threadIdx.x;
+		int row = blockIdx.y + threadIdx.y;
 
-	
-	point[threadIdx.y][threadIdx.x] = input[row * (h + 2) + col];
+		point[threadIdx.y][threadIdx.x] = input[row * width + col];
+	}
 
 	__syncthreads();
 
-	int rx = blockIdx.x * STEP + threadIdx.x;
-	int ry = blockIdx.y * STEP + threadIdx.y;
+	if (threadIdx.x < STEP && threadIdx.y < STEP)
+	{
+		int rx = blockIdx.x * STEP + threadIdx.x;
+		int ry = blockIdx.y * STEP + threadIdx.y;
 
-	float ax = float(threadIdx.x) / STEP;
-	float ay = float(threadIdx.y) / STEP;
+		double ax = double(threadIdx.x) / STEP;
+		double ay = double(threadIdx.y) / STEP;
 
-	float res = bicubicInterpolate(ax, ay, point);
+		RGBApixel res = bicubicInterpolate(ax, ay, point);
 
-	if (res < 0) res = 0.;
-	if (res > 255) res = 255.;
-
-	output[ry * (h - 1) * STEP + rx] = res;
+		output[ry * (width - 2) * STEP + rx] = res;
+	}
 }
 
 int main(int argc, char **argv)
 {
 	int iterations = 100;
+
 	BMP Image;
-	Image.ReadFromFile("nyan-cat-150x150.bmp");
+	
+	Image.ReadFromFile("TRU256.BMP");
 
 	int height = Image.TellHeight();
 	int width = Image.TellWidth();
 
-	int new_h = height + 2;
-	int new_w = width + 2;
+	int out_h = (height - 2) * STEP;
+	int out_w = (width - 2) * STEP;
 
-	int out_h = (height - 1) * STEP;
-	int out_w = (width - 1) * STEP;
-
-	float* outputCPU = (float*)calloc(out_h * out_w, sizeof(float));
-	float* outputGPU = (float*)calloc(out_h * out_w, sizeof(float));
-	float* imageArray = (float*)calloc(new_h * new_w, sizeof(float));
-
+	RGBApixel* outputCPU = (RGBApixel*)calloc(out_h * out_w, sizeof(RGBApixel));
+	RGBApixel* outputGPU = (RGBApixel*)calloc(out_h * out_w, sizeof(RGBApixel));
+	RGBApixel* imageArray = (RGBApixel*)calloc(height * width, sizeof(RGBApixel));
 
 	for (int j = 0; j < Image.TellHeight(); j++)
 		for (int i = 0; i < Image.TellWidth(); i++)
-			imageArray[(j + 1) * new_h + (i+1)] = Image(i, j)->Red;
-
+			imageArray[j * Image.TellWidth() + i] = Image.GetPixel(i, j);
 
 
 	////////////////////////////////////////////////////////////////////
@@ -204,16 +206,16 @@ int main(int argc, char **argv)
 
 	printf("CPU time: %f msec\n", cpu_time);
 
-	float* devImageArray;
-	float* devOutputGPU;
+	RGBApixel* devImageArray;
+	RGBApixel* devOutputGPU;
 
-	cudaMalloc((void**)&devImageArray, new_h * new_w * sizeof(float));
-	cudaMalloc((void**)&devOutputGPU, out_h * out_w * sizeof(float));
+	cudaMalloc((void**)&devImageArray, height * width * sizeof(RGBApixel));
+	cudaMalloc((void**)&devOutputGPU, out_h * out_w * sizeof(RGBApixel));
 
-	cudaMemcpy(devImageArray, imageArray, new_h * new_w * sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(devImageArray, imageArray, height * width * sizeof(RGBApixel), cudaMemcpyHostToDevice);
 
-	dim3 threadsPerBlock(4, 4);
-	dim3 blocks((height - 1), (width - 1));
+	dim3 threadsPerBlock((STEP <= 4) ? 4 : STEP, (STEP <= 4) ? 4 : STEP);
+	dim3 blocks((width - 2), (height - 2));
 
 	cudaEvent_t start;
 	cudaEvent_t stop;
@@ -239,13 +241,12 @@ int main(int argc, char **argv)
 
 	cudaDeviceSynchronize();
 
-	cudaMemcpy(outputGPU, devOutputGPU, out_h * out_w * sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(outputGPU, devOutputGPU, out_h * out_w * sizeof(RGBApixel), cudaMemcpyDeviceToHost);
 
 	cudaDeviceSynchronize();
 
-
-	saveImage_(outputCPU, out_h, out_w, FilterMethod::CPU);
-	saveImage_(outputGPU, out_h, out_w, FilterMethod::GPU);
+	saveImage(outputCPU, out_h, out_w, FilterMethod::CPU);
+	saveImage(outputGPU, out_h, out_w, FilterMethod::GPU);
 
 	cudaFree(devImageArray);
 	cudaFree(devOutputGPU);
